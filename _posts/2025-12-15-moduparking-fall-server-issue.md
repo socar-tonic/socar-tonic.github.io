@@ -144,7 +144,11 @@ flowchart LR
 
 ## 3.2 캐시 전략 도입
 
-조회와 갱신을 분리하려면 캐시가 필수였습니다. Redis를 도입하여 **Look-Aside(Cache-Aside) 전략**을 적용했습니다.
+조회와 갱신을 분리하려면 캐시가 필수였습니다. Redis를 도입하고, 여러 캐시 전략을 조합하여 적용했습니다.
+
+- **Look-Aside(Cache-Aside)**: 조회 시 캐시를 우선 확인하고, 미스 시 DB 조회 후 캐시에 저장
+- **CDC 기반 비동기 갱신**: 데이터 변경 시 CDC 파이프라인을 통해 캐시를 비동기로 갱신
+- **날짜 기반 캐시 키**: 날짜가 키에 포함되어 자정에 자동으로 새 캐시 참조 (별도 초기화 불필요)
 
 > 캐시 전략 관련 참고: [인증 토큰 트래픽 처리기 - 올리](https://tech.socarcorp.kr/dev/2023/06/27/handling-authentication-token-traffic-01.html#%EB%AC%B8%EC%A0%9C-%ED%95%B4%EA%B2%B0-%EB%B0%A9%EC%95%88-%EC%A0%81%EC%9A%A9---redis-cache-layer-%EC%BA%90%EC%8B%9C-%EC%A0%84%EB%9E%B5)
 
