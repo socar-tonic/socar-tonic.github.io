@@ -322,3 +322,18 @@ aron:
   links:
     linkedin: 'https://www.linkedin.com/in/dongheekim85/'
 
+sebastian:
+  name: 세바스찬
+  image: '/assets/authors/default.png'
+  position: 백엔드 개발자
+  introduction: 모두의주차장에서 백엔드 개발을 하고 있습니다.
+  links:
+    linkedin: 'https://www.linkedin.com/in/seobew/'
+
+ruru:
+  name: 루루
+  image: '/assets/authors/default.png'
+  position: 백엔드 개발자
+  introduction: 모두의주차장에서 백엔드 개발을 하고 있습니다.
+  links:
+    linkedin: 'https://www.linkedin.com/in/ansrl0107/'
