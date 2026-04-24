@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 260"
+     font-family="-apple-system, BlinkMacSystemFont, 'Pretendard', 'Apple SD Gothic Neo', 'Noto Sans KR', 'Segoe UI', sans-serif">
+  <defs>
+    <marker id="k-gray" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#64748B"/>
+    </marker>
+    <filter id="shadow-k" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="1.5" stdDeviation="2.5" flood-color="#0f172a" flood-opacity="0.1"/>
+    </filter>
+  </defs>
+
+  <rect width="900" height="260" fill="#ffffff"/>
+
+  <!-- Title -->
+  <text x="450" y="32" text-anchor="middle" fill="#0F172A" font-size="13" font-weight="700">자동화 봇이 멈추면, Kafka를 타고 AI 에이전트가 바통을 받는다</text>
+
+  <!-- Group 1 wash: 기존 시스템 -->
+  <rect x="30" y="60" width="210" height="160" rx="18" fill="#EFF6FF" stroke="#93C5FD" stroke-width="1.2" stroke-dasharray="4 4"/>
+  <text x="48" y="84" fill="#2563EB" font-size="11" font-weight="700" letter-spacing="0.8">기존 시스템</text>
+
+  <!-- 할인권 자동화 봇 node -->
+  <g filter="url(#shadow-k)">
+    <rect x="50" y="104" width="170" height="96" rx="12" fill="#ffffff" stroke="#3B82F6" stroke-width="1.5"/>
+  </g>
+  <text x="135" y="140" text-anchor="middle" fill="#1E3A8A" font-size="15" font-weight="700">할인권 자동화 봇</text>
+  <text x="135" y="162" text-anchor="middle" fill="#1D4ED8" font-size="11">55개 장비사 자동 적용</text>
+  <text x="135" y="180" text-anchor="middle" fill="#1D4ED8" font-size="11">(배치)</text>
+
+  <!-- Group 2 wash: 연결 -->
+  <rect x="260" y="60" width="200" height="160" rx="18" fill="#FFF7ED" stroke="#FDBA74" stroke-width="1.2" stroke-dasharray="4 4"/>
+  <text x="278" y="84" fill="#EA580C" font-size="11" font-weight="700" letter-spacing="0.8">연결</text>
+
+  <!-- Kafka icon (cylinder) -->
+  <g filter="url(#shadow-k)">
+    <ellipse cx="360" cy="118" rx="38" ry="12" fill="#ffffff" stroke="#F97316" stroke-width="1.5"/>
+    <path d="M 322,118 L 322,172 A 38,12 0 0 0 398,172 L 398,118" fill="#ffffff" stroke="#F97316" stroke-width="1.5"/>
+    <ellipse cx="360" cy="118" rx="38" ry="12" fill="#ffffff" stroke="#F97316" stroke-width="1.5"/>
+    <ellipse cx="360" cy="140" rx="38" ry="12" fill="none" stroke="#F97316" stroke-width="1" stroke-opacity="0.5"/>
+    <ellipse cx="360" cy="160" rx="38" ry="12" fill="none" stroke="#F97316" stroke-width="1" stroke-opacity="0.5"/>
+  </g>
+  <text x="360" y="152" text-anchor="middle" fill="#7C2D12" font-size="14" font-weight="700">Kafka</text>
+  <text x="360" y="202" text-anchor="middle" fill="#C2410C" font-size="11" font-weight="500">실패 이벤트 토픽</text>
+
+  <!-- Group 3 wash: 에이전트 -->
+  <rect x="480" y="60" width="390" height="160" rx="18" fill="#ECFDF5" stroke="#6EE7B7" stroke-width="1.2" stroke-dasharray="4 4"/>
+  <text x="498" y="84" fill="#059669" font-size="11" font-weight="700" letter-spacing="0.8">AI 에이전트 시스템</text>
+
+  <!-- AI 에이전트 node -->
+  <g filter="url(#shadow-k)">
+    <rect x="500" y="104" width="170" height="96" rx="12" fill="#ffffff" stroke="#10B981" stroke-width="1.5"/>
+  </g>
+  <text x="585" y="140" text-anchor="middle" fill="#064E3B" font-size="15" font-weight="700">AI 에이전트</text>
+  <text x="585" y="162" text-anchor="middle" fill="#047857" font-size="11">LangGraph + LLM</text>
+  <text x="585" y="180" text-anchor="middle" fill="#047857" font-size="11">ReAct 루프</text>
+
+  <!-- 장비사 관리자 웹 -->
+  <g filter="url(#shadow-k)">
+    <rect x="690" y="104" width="170" height="96" rx="12" fill="#ffffff" stroke="#475569" stroke-width="1.5"/>
+  </g>
+  <text x="775" y="140" text-anchor="middle" fill="#0F172A" font-size="15" font-weight="700">장비사 관리자 웹</text>
+  <text x="775" y="162" text-anchor="middle" fill="#475569" font-size="11">Playwright MCP로</text>
+  <text x="775" y="180" text-anchor="middle" fill="#475569" font-size="11">실제 클릭 · 입력</text>
+
+  <!-- Arrows -->
+  <!-- 봇 → Kafka -->
+  <line x1="220" y1="152" x2="320" y2="152" stroke="#64748B" stroke-width="1.8" marker-end="url(#k-gray)"/>
+  <text x="270" y="142" text-anchor="middle" fill="#64748B" font-size="11" font-weight="500">실패 발행</text>
+
+  <!-- Kafka → 에이전트 -->
+  <line x1="400" y1="152" x2="496" y2="152" stroke="#64748B" stroke-width="1.8" marker-end="url(#k-gray)"/>
+  <text x="448" y="142" text-anchor="middle" fill="#64748B" font-size="11" font-weight="500">구독</text>
+
+  <!-- 에이전트 → 웹 -->
+  <line x1="670" y1="152" x2="686" y2="152" stroke="#64748B" stroke-width="1.8" marker-end="url(#k-gray)"/>
+
+  <!-- Caption below -->
+  <text x="585" y="240" text-anchor="middle" fill="#334155" font-size="11">에이전트는 실제 브라우저를 열어 고객 대신 할인권을 적용한다</text>
+</svg>

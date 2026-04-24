@@ -3,7 +3,7 @@ email:              recruit@socar.kr
 description:        쏘카 기술 블로그
 author:             SOCAR
 baseurl:            ""
-url:                "https://tech.socarcorp.kr"
+url:                "https://socar-tonic.github.io"
 exposeEmail:        false
 
 # Social Profiles
