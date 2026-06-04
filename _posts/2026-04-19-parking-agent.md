@@ -95,9 +95,54 @@ tags:
 
 마지막에는 Slack으로 결과를 보냅니다. 카테고리별 담당자 태그와 추적 링크가 한 메시지에 담깁니다.
 
-### 브라우저를 LLM의 손에 쥐여 주기
+이 분기 자체는 LangGraph의 `StateGraph`로 명시적으로 정의합니다. 사이트 종류는 headless(웹 UI를 직접 클릭·입력)와 api(네트워크 요청을 가로채 판단) 두 갈래입니다. 같은 단계명(login·search·discount·check)을 path별로 따로 둔 것은, 화면을 보고 클릭해야 하는 경우와 네트워크 응답을 분석해야 하는 경우의 도구 세트가 다르기 때문입니다.
 
-복구 단계에서 에이전트는 실제 브라우저를 직접 조작합니다. 여기에 **Playwright MCP**를 썼습니다. Playwright MCP는 **브라우저 조작(클릭·입력·탐색)을 LLM의 도구로 노출**합니다. 사람이 크롬 개발자도구로 화면 구조를 열어 보고 누르던 것에 가깝지만, LLM이 읽는 것은 픽셀 화면이 아니라 **접근성 트리(accessibility tree) 기반의 스냅샷**입니다. LLM은 "스냅샷으로 화면 구조를 파악한다 → 다음 행동을 정한다 → 도구를 호출해 클릭하거나 입력한다"를 반복합니다. 추론과 행동을 번갈아 내놓는 ReAct식 루프입니다.
+```ts
+// webdc.graph.ts
+new StateGraph(WebDCAgentState)
+  .addNode('initTools', initTools)
+  .addNode('access', accessSite)
+  .addNode('compare', compareWithOriginal)
+  .addNode('analyzeTransient', analyzeTransient)
+  .addNode('pr', createPR)
+  // Headless path
+  .addNode('headless-login', headlessLogin)
+  .addNode('headless-search', headlessSearch)
+  .addNode('headless-discount', headlessDiscount)
+  .addNode('headless-check', headlessCheck)
+  .addNode('analyze-headless', analyzeHeadless)
+  // API path
+  .addNode('api-login', apiLogin)
+  .addNode('api-search', apiSearch)
+  .addNode('api-discount', apiDiscount)
+  .addNode('api-check', apiCheck)
+  .addNode('analyze-api', analyzeApi)
+```
+
+### 브라우저를 LLM의 손에 쥐여 주기 — 왜 Playwright MCP였나
+
+복구 단계에서 에이전트는 실제 브라우저를 직접 조작합니다. 그러려면 브라우저를 LLM의 도구로 노출해 줘야 합니다. 후보는 셋이었습니다.
+
+- **Puppeteer MCP** — 당시 공식 MCP 서버가 없었습니다.
+- **Chrome DevTools MCP** — 실시간 조작은 되지만, 실 브라우저 동작을 흉내내는 용도라 우리가 결국 만들어야 할 결과물(자동화 코드 변경)로 옮기기 어려웠습니다.
+- **Playwright MCP** — Playwright는 우리 배치 코드가 이미 쓰는 라이브러리고, MCP가 페이지를 **접근성 트리(accessibility tree) 기반 스냅샷**으로 LLM에 넘깁니다. LLM이 읽는 것은 픽셀 화면이 아니라 구조화된 스냅샷이라, CSS selector를 추론할 필요 없이 `ref`로 위젯을 가리킬 수 있어 훨씬 잘 알아듣습니다.
+
+그래서 Playwright MCP를 골랐습니다. LLM은 "스냅샷으로 화면 구조를 파악한다 → 다음 행동을 정한다 → 도구를 호출해 클릭하거나 입력한다"를 반복합니다. 추론과 행동을 번갈아 내놓는 ReAct식 루프입니다. 실제로 브라우저는 이렇게 띄웁니다.
+
+```ts
+// browser-pool.service.ts — Playwright MCP 실행 인자
+export const PLAYWRIGHT_MCP_SPAWN_ARGS: readonly string[] = [
+  '@playwright/mcp@0.0.61',
+  '--caps=vision',
+  '--isolated',          // 매번 새 세션. 쿠키 미저장.
+  '--headless',
+  '--no-sandbox',
+  '--timeout-navigation', '15000',
+  '--init-script', NETWORK_INTERCEPTOR_INIT_SCRIPT
+]
+```
+
+`--init-script`로 페이지 최초 스크립트보다 먼저 **네트워크 요청을 가로채는 인터셉터**를 주입합니다. API path 노드들이 보고 판단하는 입력이 바로 이 인터셉터가 모아 둔 네트워크 로그입니다.
 
 ## 5. LLM을 어디까지 믿었나
 
@@ -105,18 +150,42 @@ tags:
 
 **1. 격리 — 자격증명·민감값은 LLM에 주지 않는다.** 로그인 아이디, 비밀번호, 세션 토큰은 LLM에 절대 전달되지 않습니다. LLM은 값이 아니라 **참조**를 다룹니다. Playwright MCP 도구를 LLM에 그대로 노출하지 않고, 그 앞에 **자격 증명을 치환하는 래퍼 도구 계층**을 두었습니다. LLM은 래퍼에게 참조를 넘기고, 래퍼가 환경 변수에서 실제 값을 꺼내 브라우저에 입력합니다.
 
-**자격 증명을 참조로만 다루는 도구 호출 (개념 예시):**
+LLM에게는 "어디에 입력할지"를 가리키는 `ref`만 노출하고, 실제 자격증명은 도구 함수의 클로저 안에서만 씁니다.
 
-```text
-LLM이 생성하는 행동:   fill(selector="#user_id", value=$CRED.parkingco_a.username)
-도구 내부에서 치환:     fill(selector="#user_id", value="(실제 계정 아이디)")
+```ts
+// login.tool.ts
+export function createLoginTool(
+  credentials: { id: string; pwd: string },
+  playwrightTools: ToolLike
+) {
+  return tool(
+    async ({ usernameSelector, passwordSelector, submitSelector }) => {
+      const browserType = playwrightTools['browser_type']
+      const browserClick = playwrightTools['browser_click']
+      // LLM은 ref만 안다. credentials는 이 클로저 안에서만 쓰인다.
+      await browserType.invoke({ ref: usernameSelector, text: credentials.id })
+      await browserType.invoke({ ref: passwordSelector, text: credentials.pwd })
+      await browserClick.invoke({ ref: submitSelector })
+      return { success: true, message: '로그인 시도 완료. 성공 여부를 확인하세요.' }
+    },
+    {
+      name: 'login',
+      description: 'browser_snapshot의 ref 3개를 전달하세요. 실제 ID/비밀번호는 시스템에서 안전하게 처리됩니다.',
+      schema: z.object({
+        usernameSelector: z.string().describe('아이디 입력 필드의 ref'),
+        passwordSelector: z.string().describe('비밀번호 입력 필드의 ref'),
+        submitSelector: z.string().describe('로그인 버튼의 ref')
+      })
+    }
+  )
+}
 ```
 
-이렇게 하면 자격 증명이 LLM의 프롬프트에도, 추론 로그에도, 외부 모델 호출에도 남지 않습니다.
+이 패턴은 단순한 보안 조치 그 이상입니다. _LLM이 자격증명을 가지고 있지 않으면 자격증명을 쓸 줄 모르는 게 디폴트_가 됩니다. 프롬프트가 길어지다 우연히 비밀번호를 로그에 흘리거나 툴 호출에 끼워 보내는 사고가 구조적으로 차단됩니다. 자격 증명이 LLM의 프롬프트에도, 추론 로그에도, 외부 모델 호출에도 남지 않습니다.
 
 **2. 구속 — LLM의 행동 범위를 노드 안으로 가둔다.** 에이전트 전체를 한 LLM의 자유에 맡기지 않고, LangGraph StateGraph로 로그인·조회·적용·검증 노드를 명시적으로 그렸습니다. LLM은 "이 노드에서 무엇을 할지"만 판단합니다. 행동 범위가 좁으면 실수의 폭도 좁아지고, 어디서 틀어졌는지가 그대로 드러납니다.
 
-**3. 분산 — 한 에이전트가 모든 결정을 내리지 않게 한다.** 분류·복구·검증을 단일 에이전트에 다 맡기면, 한 번의 환각이 전체 결정을 망칩니다. 그래서 역할별로 에이전트를 분리하는 **멀티 에이전트 구조**를 택했습니다. 각 에이전트의 컨텍스트와 책임이 좁아지고, 한 군데의 헛소리가 다른 단계로 번지지 않습니다.
+**3. 분리 — 한 노드가 모든 결정을 내리지 않게 한다.** 분류·복구·검증을 한 덩어리로 판단하면, 한 번의 환각이 전체 결정을 망칩니다. 그래서 로그인·조회·적용·검증·분석을 각각의 노드로 쪼개고, 노드마다 컨텍스트와 책임을 좁혔습니다. 한 군데의 헛소리가 다른 단계로 번지지 않습니다. 다만 분명히 해 둘 게 있습니다. 이건 독립적으로 협업하는 "멀티 에이전트"가 아니라 **하나의 결정적 그래프 안에서 역할을 나눈 것**입니다. 처음엔 멀티 에이전트도 진지하게 검토했지만 결국 버렸고, 그 이야기는 [6장](#6-처음-세운-가설은-거의-다-틀렸다)에서 다룹니다.
 
 **4. 형식 강제 — Structured Output으로 출력 스키마를 고정한다.** LLM이 자유 형식 텍스트를 뱉게 두면 "그럴듯한데 파싱이 안 되는" 출력이 자주 나옵니다. 그래서 LLM의 출력을 **Structured Output**(JSON 스키마)으로 강제했습니다. 스키마에 어긋난 출력은 즉시 거부됩니다. 부가 효과로, 입력·출력이 고정 스키마라 **테스트도 단순해졌습니다** — 스키마만 맞추면 한 노드를 독립적으로 검증할 수 있습니다.
 
@@ -128,15 +197,17 @@ LLM이 생성하는 행동:   fill(selector="#user_id", value=$CRED.parkingco_a.
 
 위 아키텍처는 깔끔해 보이지만, 처음부터 저런 모습은 아니었습니다. 만들면서 세운 가설들은 대부분 현실에서 깨졌습니다. 어떻게 틀렸고 어떻게 고쳤는지를 네 가지로 나눠 적습니다.
 
-### 6.1 에이전트 설계: 논리적 분류에서 워크플로우로
+### 6.1 에이전트 설계: 협업하는 멀티 에이전트에서 워크플로우로
 
-**처음 가설.** LLM은 똑똑하니, 상황을 통째로 던져 주면 알아서 잘 풀 것이다. 실패한 화면의 DOM과 에러 메시지를 주고 "원인을 분류하고, 알아서 복구해 줘"라고 맡기는, 자유도 높은 단일 에이전트를 떠올렸습니다.
+**처음 가설.** 초기 제안서에는 **분석·복구·검증 세 개의 에이전트**를 분리해 협업시키는 그림을 그렸습니다. 각자 컨텍스트를 좁게 가지면 환각이 다른 단계로 번지지 않을 거란 기대였습니다.
 
-**부딪힌 현실.** LLM은 비결정적입니다. 같은 입력에도 매번 다른 경로를 탔습니다. 어떤 날은 로그인부터 다시 했고, 어떤 날은 조회를 건너뛰었습니다. 더 큰 문제는 **실패했을 때 어디서 틀어졌는지 추적할 수 없다는 것**이었습니다. 한 덩어리로 판단하는 에이전트는 한 덩어리로 실패했습니다.
+**부딪힌 현실.** 실제로 돌려 보니 세 에이전트가 같은 의도(=할인권을 적용한다)에 대해 서로 다르게 판단하기 시작했습니다. 분석은 "API 변경 같다"고 하는데 복구는 UI로 우회하고, 검증은 또 다른 결론을 냈습니다. LLM은 비결정적이라 같은 입력에도 매번 다른 경로를 탔고, 더 큰 문제는 **셋이 합쳐서 무엇을 했는지 추적조차 어렵다는 것**이었습니다.
 
-**재설계.** 판단은 LLM에 맡기되, **흐름은 우리가 고정**하기로 했습니다. LangGraph StateGraph로 로그인·조회·적용·검증·분석을 각각의 노드로 분리하고, 노드 사이의 전이 규칙을 명시적으로 그렸습니다. LLM의 판단은 "이 노드 안에서 무엇을 할지"로 범위가 좁아졌습니다. **워크플로우가 뼈대를 잡고, LLM은 각 관절에서만 판단합니다.** 실패하면 어느 노드에서 멈췄는지가 그대로 드러납니다.
+<p align="center">
+  <img src="/img/parking-agent/discarded-multiagent.svg" alt="버린 멀티 에이전트 설계: 세 에이전트가 같은 의도에 제각각 판단해 충돌" style="max-width: 720px; width: 100%;">
+</p>
 
-> **[보강 필요]** 이 전환을 결정하게 만든 구체적인 실패 사례 한 가지(어떤 장비사에서 어떤 비결정적 동작이 나왔는지)를 넣으면 설득력이 올라갑니다.
+**재설계.** 그래서 한 발 물러서서, **개발자가 평소 이런 장애를 잡을 때 따라가던 순서**를 그대로 옮기기로 했습니다. 사이트 접근 → 로그인 → 차량 조회 → 할인 적용 → 검증 → 변경점 비교 → 필요하면 PR. 이 흐름을 LangGraph 노드로 고정했더니, LLM이 판단할 범위가 "이 노드 안에서 다음 도구 하나를 무엇으로 부를지"로 좁아졌습니다. **워크플로우가 뼈대를 잡고, LLM은 각 관절에서만 판단합니다.** 실패하면 어느 노드에서 멈췄는지가 그대로 드러납니다.
 
 ### 6.2 프롬프트: 범용에서 장비사별 동적 프롬프트로
 
@@ -144,9 +215,27 @@ LLM이 생성하는 행동:   fill(selector="#user_id", value=$CRED.parkingco_a.
 
 **부딪힌 현실.** 장비사마다 너무 달랐습니다. 같은 개념을 누구는 "할인권", 누구는 "쿠폰", 누구는 "정기권"이라 불렀고, 로그인 흐름과 화면 구성도 제각각이었습니다. 범용 프롬프트는 결국 평균치라, **어느 장비사에서도 정확히 들어맞지 않았습니다.** 한 곳을 맞추려고 프롬프트를 고치면 다른 곳이 깨졌습니다.
 
-**재설계.** 프롬프트를 **공통 골격 + 장비사별 컨텍스트**로 쪼갰습니다. 장비사별로 알려진 화면 흐름, 용어, 셀렉터 힌트를 따로 관리하고, 실행 시점에 해당 장비사의 컨텍스트를 동적으로 조립해 주입합니다. 프롬프트는 하나가 아니라, 장비사 수만큼 만들어지는 셈입니다.
+**재설계.** 프롬프트를 **공통 골격 + 장비사별 컨텍스트**로 쪼갰습니다. 노드의 시스템 프롬프트는 빌더가 만들고, 빌더는 장비사 스키마 파일에서 화면 흐름·용어·셀렉터 힌트를 꺼내 끼워 넣습니다. 프롬프트는 코드상 하나지만, 실행 시점에는 장비사 수만큼 다른 프롬프트가 만들어집니다.
 
-> **[보강 필요]** 장비사별 컨텍스트로 관리하는 항목의 실제 구조(어떤 필드를 두는지)를 코드나 표로 보여주면 좋습니다.
+```json
+// 장비사 스키마 예시 (발췌)
+{
+  "systemType": "headless",
+  "hints": {
+    "search": "검색 결과 테이블에서 체크박스 선택 후 할인 진행. 2번째 칸=차량번호, 3번째 칸=입차시간",
+    "discount": "할인권 버튼은 input[onclick*='discountId'] 셀렉터로 클릭"
+  },
+  "login": {
+    "steps": [
+      { "action": "input", "selector": "#user_id",  "value": "{{env.id}}" },
+      { "action": "input", "selector": "#password", "value": "{{env.pwd}}" },
+      { "action": "click", "selector": "text/로그인" }
+    ]
+  }
+}
+```
+
+이 스키마는 두 가지 용도를 동시에 합니다. 평소엔 LLM에 힌트로 들어가고, 변경점 비교 단계(`compare` 노드)에서는 "기록된 원래 모습"의 역할을 합니다.
 
 ### 6.3 테스트 환경: 실제 사이트에서 Mock으로
 
@@ -180,11 +269,14 @@ LLM이 생성하는 행동:   fill(selector="#user_id", value=$CRED.parkingco_a.
 
 결과는 다음과 같았습니다.
 
-- 실패 원인 분류 정확도: **100%**
-- 복구 리드타임: 기존 약 4시간 → **5분 이내**
-- 검증 과정에서 자동으로 열린 Draft PR: **1건**
+| 지표 | 결과 |
+|------|------|
+| 실패 원인 분류 정확도 | 100% |
+| 복구 성공률 | 98% |
+| 복구 리드타임 | 약 4시간 → 5분 이내 (98% 단축) |
+| 변경점 발견 → 자동 Draft PR | 1건 |
 
-> **[보강 필요]** 위 수치는 임시값입니다. 테스트 세트 규모(케이스 수), 복구 성공률, 측정 기간 등을 실제 데이터로 채워 주세요. 표로 정리하면 더 좋습니다.
+> **[보강 필요]** 위 수치는 임시값입니다. 측정 기간, 테스트 세트 규모(케이스 수), 각 비율의 분모를 실제 데이터로 채워 주세요.
 
 이 결과를 근거로 적용 범위를 **55개 장비사 전체로 확대**했습니다.
 
@@ -224,14 +316,39 @@ LLM이 생성하는 행동:   fill(selector="#user_id", value=$CRED.parkingco_a.
 
 해결은 **BrowserPool에 세마포어를 도입**하는 것이었습니다. 동시에 떠 있을 수 있는 브라우저 수에 상한을 두고, 상한을 넘는 요청은 앞선 작업이 끝나 자리가 날 때까지 대기시켰습니다.
 
-**동시 브라우저 수를 세마포어로 제한 (개념 예시):**
+풀 자체는 인스턴스를 _재사용하지 않습니다_ — 매 `acquire`마다 새로 띄우고 `release`마다 닫습니다. 시간 누적 누수와 page handle 손상 도미노를 막기 위해서입니다.
 
-```text
-세마포어(상한 N) 획득 → 브라우저 실행 → 복구 작업 → 브라우저 종료 → 세마포어 반납
-상한을 넘는 요청은 대기 큐에서 자리가 날 때까지 보류
+```ts
+// browser-pool.service.ts
+async acquire(): Promise<BrowserInstance> {
+  if (this.activeCount < this.maxSize) {     // maxSize = 동시 실행 상한
+    const instance = await this.createInstance()
+    this.activeCount++
+    return instance
+  }
+  // 상한 초과 → 자리가 날 때까지 대기 큐 (timeout 포함)
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      this.waitQueue = this.waitQueue.filter(w => w.resolve !== resolve)
+      reject(new Error('Browser acquire timeout'))
+    }, ACQUIRE_TIMEOUT_MS)
+    this.waitQueue.push({ resolve, reject, timer })
+  })
+}
 ```
 
-> **[보강 필요]** OOM 당시 메모리 수치, 세마포어 상한을 몇으로 잡았는지, 적용 전후 메모리 그래프를 넣으면 8.1이 훨씬 단단해집니다.
+호출 쪽은 `try/finally`로 반드시 반납을 보장합니다.
+
+```ts
+const browser = await this.browserPool.acquire()
+try {
+  return await this.graph.run(/* ... */, browser)
+} finally {
+  await this.browserPool.release(browser)
+}
+```
+
+> **[보강 필요]** OOM 당시 메모리 수치, 세마포어 상한값, 적용 전후 메모리 그래프(Datadog 캡처)를 넣으면 훨씬 단단해집니다.
 
 ### 9.2 같은 이벤트가 두 번 처리됐다
 
@@ -239,9 +356,34 @@ LLM이 생성하는 행동:   fill(selector="#user_id", value=$CRED.parkingco_a.
 
 외부 웹에 주차권을 두 번 등록하는 것은 그 자체로 위험합니다. 원인은 메시지 처리의 특성이었습니다. 컨슈머 리밸런싱 같은 순간에는 둘 이상의 워커가 같은 이벤트를 동시에 집어 들 수 있고, 그때 에이전트가 같은 복구를 동시에 실행했습니다.
 
-해결은 **분산 락**이었습니다. 이벤트를 키 단위로 묶어 락을 잡고, 락을 잡지 못한 처리는 건너뜁니다. 이렇게 **여러 워커가 같은 이벤트를 동시에 집어 드는 중복 실행**을 막았습니다.
+해결은 **쿠폰 한 건 단위(couSeq)로 잡는 Redis 분산 락**이었습니다. Kafka 컨슈머에서 락을 잡고 그 안에서만 복구를 돌립니다. 잡지 못한 워커는 조용히 스킵합니다. `SET key value EX ttl NX`로 획득하고, 해제는 Lua 스크립트로 "내가 잡은 락만" 안전하게 풉니다(TTL이 만료된 뒤 다른 워커가 다시 잡은 락을 잘못 푸는 것을 막기 위해서입니다).
 
-> **[보강 필요]** 분산 락을 무엇으로 구현했는지(Redis 등), 중복이 실제로 몇 건 관측됐는지를 넣어 주세요.
+```ts
+// 획득: 키가 없을 때만(NX) 세팅, TTL 부여(EX)
+const ok = await redis.set(key, value, 'EX', ttlSeconds, 'NX')
+
+// 해제: 값이 내 것일 때만 삭제 (Lua로 원자적 처리)
+const RELEASE = `
+  if redis.call("GET", KEYS[1]) == ARGV[1] then
+    return redis.call("DEL", KEYS[1])
+  end
+  return 0`
+await redis.eval(RELEASE, 1, key, value)
+```
+
+키를 쿠폰 단위로 잡은 게 핵심입니다. 컨슈머 리밸런싱이나 재시도 상황에서도 같은 한 건의 복구는 단 한 번만 돕니다.
+
+> **[보강 필요]** 분산 락 도입 전 실제로 관측됐던 중복 실행 빈도, 락 미획득 카운트 추이를 넣어 주세요.
+
+### 9.3 상태 머신이 필요 없는 상태 머신
+
+흥미로웠던 건 **실행 상태 테이블을 따로 두지 않았다**는 점입니다. 처음엔 DB에 `RUNNING / SUCCESS / FAILED`를 적는 안을 검토했는데, 따져 보니 필요가 없었습니다.
+
+- **성공** — 배치가 이미 가진 처리 이력이 다음 재전송을 막습니다.
+- **실패** — 락이 풀리면 잠시 뒤 배치가 어차피 재전송합니다. 자연스러운 재시도입니다.
+- **비정상 종료** — 락 TTL로 자동 해제됩니다.
+
+> 결국 표현해야 할 상태는 **RUNNING** 하나뿐이고, 그건 **락의 존재 자체**가 표현한다. 상태 머신이 필요 없는 상태 머신이었다.
 
 ## 10. 마치며
 
@@ -255,6 +397,7 @@ LLM이 생성하는 행동:   fill(selector="#user_id", value=$CRED.parkingco_a.
 
 - **룰이 아니라 판단.** 구조·변경·규칙성이 보장되지 않는 외부 웹에는 룰 기반 자동화가 성립하지 않는다. 화면을 읽고 다음 행동을 정하는 판단을 LLM에 위임했다.
 - **비결정적 부품, 결정적 구조.** LLM의 판단력은 믿되 흐름은 LangGraph StateGraph로 고정했다. 워크플로우가 뼈대, LLM이 관절.
+- **멀티 에이전트는 버렸다.** 협업하는 세 에이전트는 같은 의도에 제각각 판단해 추적이 불가능했다. 하나의 결정적 그래프 안에서 노드별로 역할만 나눴다.
 - **프롬프트는 장비사별로.** 범용 프롬프트는 평균치라 어디에도 안 맞는다. 공통 골격에 장비사별 컨텍스트를 동적으로 조립했다.
 - **테스트는 Mock으로.** 실제 외부 사이트는 부작용·재현 불가·불안정으로 회귀 테스트가 안 된다. DOM 스냅샷을 박제해 결정적 환경을 만들었다.
 - **운영이 본론.** OOM은 세마포어로, 중복 실행은 분산 락으로. 검증 환경에서 안 보이던 문제는 운영 트래픽 위에서 드러난다.

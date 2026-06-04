@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 466" role="img"
+  aria-label="버린 초기 설계: 분석·복구·검증 세 에이전트가 '할인권 적용'이라는 같은 의도를 두고 각각 'API 변경', 'UI 우회', '또 다른 결론'으로 제각각 판단하며 서로 충돌해, 합산 결과를 추적할 수 없었다.">
+  <defs>
+    <style>
+      .bf-role { font-family: -apple-system, "Apple SD Gothic Neo", sans-serif; font-size: 12.5px; font-weight: 700; }
+      .bf-say { font-family: -apple-system, "Apple SD Gothic Neo", sans-serif; font-size: 11.5px; fill: #5a6271; }
+      .bf-goal { font-family: -apple-system, "Apple SD Gothic Neo", sans-serif; font-size: 13px; font-weight: 600; fill: #2b6cb0; }
+      .bf-clashtxt { font-family: -apple-system, "Apple SD Gothic Neo", sans-serif; font-size: 11px; font-weight: 600; fill: #c25a52; }
+      .bf-q { font-family: "SF Mono", ui-monospace, Menlo, monospace; font-size: 15px; font-weight: 700; fill: #b09a97; }
+      .bf-bad { font-family: -apple-system, "Apple SD Gothic Neo", sans-serif; font-size: 12.5px; font-weight: 700; fill: #b34a42; }
+      .bf-flow { fill: none; stroke: #9aa6b8; stroke-width: 1.5; }
+      .bf-clash { fill: none; stroke: #c25a52; stroke-width: 1.5; stroke-dasharray: 5 4; }
+      .bf-qline { fill: none; stroke: #c2b3b0; stroke-width: 1.3; stroke-dasharray: 2 5; }
+    </style>
+    <marker id="bf-g" viewBox="0 0 8 8" refX="6.2" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M1,1 L6.5,4 L1,7 Z" fill="#9aa6b8" /></marker>
+    <marker id="bf-x" viewBox="0 0 8 8" refX="6.2" refY="4" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+      <path d="M1,1 L6.5,4 L1,7 Z" fill="#c25a52" /></marker>
+  </defs>
+
+  <rect width="760" height="466" fill="#fbfcff" />
+
+  <!-- shared intent -->
+  <rect x="255" y="20" width="250" height="46" rx="10" fill="#fff" stroke="#2b6cb0" stroke-width="1.6" />
+  <text class="bf-goal" x="380" y="43" text-anchor="middle" dominant-baseline="central">의도: 할인권을 적용한다</text>
+
+  <!-- intent fans out to all three -->
+  <path class="bf-flow" d="M338,66 C262,94 178,120 164,148" marker-end="url(#bf-g)" />
+  <path class="bf-flow" d="M380,66 L380,170" marker-end="url(#bf-g)" />
+  <path class="bf-flow" d="M422,66 C498,94 582,120 596,148" marker-end="url(#bf-g)" />
+
+  <!-- tangled cross-talk: each disagrees with the others -->
+  <text class="bf-clashtxt" x="380" y="104" text-anchor="middle">서로 다른 판단</text>
+  <path class="bf-clash" d="M232,158 C360,108 408,108 528,158" marker-start="url(#bf-x)" marker-end="url(#bf-x)" />
+  <path class="bf-clash" d="M228,200 C272,222 286,182 312,192" marker-start="url(#bf-x)" marker-end="url(#bf-x)" />
+  <path class="bf-clash" d="M448,192 C492,182 506,222 540,200" marker-start="url(#bf-x)" marker-end="url(#bf-x)" />
+
+  <!-- three agents, deliberately mismatched colors & slight tilt -->
+  <g transform="rotate(-2.5 162 178)">
+    <rect x="92" y="152" width="140" height="52" rx="11" fill="#fff" stroke="#8b6db5" stroke-width="1.6" />
+    <text class="bf-role" x="162" y="172" text-anchor="middle" dominant-baseline="central" fill="#6f5494">분석 에이전트</text>
+    <text class="bf-say" x="162" y="191" text-anchor="middle" dominant-baseline="central">“API가 바뀐 듯”</text>
+  </g>
+  <g transform="rotate(2 380 200)">
+    <rect x="310" y="174" width="140" height="52" rx="11" fill="#fff" stroke="#c98a4b" stroke-width="1.6" />
+    <text class="bf-role" x="380" y="194" text-anchor="middle" dominant-baseline="central" fill="#a9722f">복구 에이전트</text>
+    <text class="bf-say" x="380" y="213" text-anchor="middle" dominant-baseline="central">“UI로 우회”</text>
+  </g>
+  <g transform="rotate(2.5 598 178)">
+    <rect x="528" y="152" width="140" height="52" rx="11" fill="#fff" stroke="#5f9e7a" stroke-width="1.6" />
+    <text class="bf-role" x="598" y="172" text-anchor="middle" dominant-baseline="central" fill="#3f7d5c">검증 에이전트</text>
+    <text class="bf-say" x="598" y="191" text-anchor="middle" dominant-baseline="central">“또 다른 결론”</text>
+  </g>
+
+  <!-- nobody can reconstruct the combined action -->
+  <path class="bf-qline" d="M170,206 C250,300 318,348 348,374" marker-end="url(#bf-g)" />
+  <path class="bf-qline" d="M380,228 L380,374" marker-end="url(#bf-g)" />
+  <path class="bf-qline" d="M590,206 C510,300 442,348 412,374" marker-end="url(#bf-g)" />
+  <text class="bf-q" x="296" y="318" text-anchor="middle">?</text>
+  <text class="bf-q" x="392" y="312" text-anchor="middle">?</text>
+  <text class="bf-q" x="470" y="318" text-anchor="middle">?</text>
+
+  <rect x="188" y="378" width="384" height="46" rx="10" fill="#fff7f6" stroke="#c25a52" stroke-width="1.5" stroke-dasharray="5 4" />
+  <text class="bf-bad" x="380" y="401" text-anchor="middle" dominant-baseline="central">✗ 셋이 합쳐 무엇을 했는지 추적 불가</text>
+</svg>
