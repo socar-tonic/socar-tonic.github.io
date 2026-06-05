@@ -321,12 +321,12 @@ _— 사내 AI 파일럿에서 유형별 대표 실패 케이스로 꾸린 테�
 
 원인은 브라우저였습니다. 실패 이벤트가 한꺼번에 몰리면 에이전트는 그만큼 많은 브라우저 인스턴스를 동시에 띄웠습니다. 브라우저 하나가 차지하는 메모리는 결코 가볍지 않아서, 동시 실행 수가 늘수록 메모리가 선형으로 불어났습니다.
 
-해결은 **BrowserPool에 세마포어를 도입**하는 것이었습니다. 동시에 떠 있을 수 있는 브라우저 수에 상한을 두고, 상한을 넘는 요청은 앞선 작업이 끝나 자리가 날 때까지 대기시켰습니다.
+해결은 **동시에 떠 있는 브라우저 수를 세마포어로 제한**하는 것이었습니다. 상한(N)을 두고, 자리가 있으면 새 인스턴스를 띄우고, 상한을 넘는 요청은 앞선 작업이 끝나 자리가 날 때까지 대기 큐에 세웁니다.
 
-풀 자체는 인스턴스를 _재사용하지 않습니다_ — 매 `acquire`마다 새로 띄우고 `release`마다 닫습니다. 시간 누적 누수와 page handle 손상 도미노를 막기 위해서입니다.
+한 가지 분명히 할 점은, 이건 흔히 말하는 **객체 풀(object pool)이 아니라는 것**입니다. 객체 풀은 비싼 인스턴스를 _재사용_해 생성 비용을 아끼지만, 여기서는 정반대로 **매 작업마다 새로 띄우고 끝나면 바로 닫습니다.** 브라우저를 오래 살려 두면 시간 누적 누수와 page handle 손상이 도미노로 번지기 때문입니다. 그래서 우리가 들고 있는 건 인스턴스가 아니라 _몇 개가 동시에 살아 있는가_ 라는 숫자 하나 — 정확히 세마포어입니다.
 
 ```ts
-// browser-pool.service.ts
+// 세마포어: 빈자리가 있으면 새 인스턴스를 띄우고, 없으면 대기 큐로 보낸다
 async acquire(): Promise<BrowserInstance> {
   if (this.activeCount < this.maxSize) {     // maxSize = 동시 실행 상한
     const instance = await this.createInstance()
@@ -344,16 +344,7 @@ async acquire(): Promise<BrowserInstance> {
 }
 ```
 
-호출 쪽은 `try/finally`로 반드시 반납을 보장합니다.
-
-```ts
-const browser = await this.browserPool.acquire()
-try {
-  return await this.graph.run(/* ... */, browser)
-} finally {
-  await this.browserPool.release(browser)
-}
-```
+작업이 끝나면 `release`가 인스턴스를 닫고 카운트를 줄인 뒤, 대기 큐의 다음 요청에게 새 자리를 내줍니다. 호출 쪽은 `try/finally`로 반납을 보장해, 복구가 도중에 실패해도 자리가 새지 않게 했습니다.
 
 <!-- 편집노트: OOM 당시 메모리 수치·세마포어 상한값·적용 전후 메모리 그래프(Datadog)를 확보하면 추가. -->
 
